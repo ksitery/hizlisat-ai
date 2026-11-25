@@ -7,6 +7,20 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+def get_active_models() -> list[str]:
+    preferred = ["gemini-3.8-flash"]
+    discovered = []
+    try:
+        for m in client.models.list():
+            name = m.name.replace("models/", "")
+            if "gemini" in name and ("flash" in name or "pro" in name):
+                if not any(x in name for x in ["image", "audio", "tts", "live", "embedding", "veo", "imagen", "robotics", "2.0", "2.5"]):
+                    if name not in preferred and name not in discovered:
+                        discovered.append(name)
+    except Exception:
+        pass
+    return (preferred + discovered)[:4]
+
 def analyze_product(image: Image.Image, platform: str = "Dolap", condition: str = "Az Kullanılmış", extra_notes: str = "") -> str:
     img_copy = image.copy()
     img_copy.thumbnail((1024, 1024))
@@ -45,15 +59,8 @@ def analyze_product(image: Image.Image, platform: str = "Dolap", condition: str 
     (Bu ürünün daha hızlı satılması için fotoğraf açısı veya ilan ayarıyla ilgili 1 pratik tavsiye)
     """
 
-    models_to_try = [
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-3.8-flash",
-        "gemini-3.8-flash-lite",
-    ]
-
-    last_error = None
-    for model_name in models_to_try:
+    errors = []
+    for model_name in get_active_models():
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -61,7 +68,7 @@ def analyze_product(image: Image.Image, platform: str = "Dolap", condition: str 
             )
             return response.text
         except Exception as e:
-            last_error = e
+            errors.append(f"{model_name}: {e}")
             continue
 
-    raise last_error
+    raise RuntimeError(" | ".join(errors))

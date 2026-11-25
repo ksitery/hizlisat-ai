@@ -16,32 +16,47 @@ if "free_uses_left" not in st.session_state:
     st.session_state.free_uses_left = 2
 if "is_pro" not in st.session_state:
     st.session_state.is_pro = False
+if "used_codes" not in st.session_state:
+    st.session_state.used_codes = []
 
-raw_codes = os.getenv("PRO_CODES", "HIZLISAT2026")
-valid_codes = [c.strip() for c in raw_codes.split(",") if c.strip()]
+raw_pro_codes = os.getenv("PRO_CODES", "HIZLISAT2026")
+valid_pro_codes = [c.strip() for c in raw_pro_codes.split(",") if c.strip()]
 
-# --- YAN MENÜ (KREDİ VE PRO AKTİVASYON PANELİ) ---
+raw_single_codes = os.getenv("SINGLE_CODES", "TEK10")
+valid_single_codes = [c.strip() for c in raw_single_codes.split(",") if c.strip()]
+
+# --- YAN MENÜ (KREDİ VE AKTİVASYON PANELİ) ---
 with st.sidebar:
     st.header("💎 Üyelik Durumu")
     if st.session_state.is_pro:
-        st.success("🌟 PRO ÜYELİK AKTİF\n\nSınırsız ilan ve fiyat analizi yapabilirsiniz.")
+        st.success("🌟 AYLIK PRO AKTİF\n\nSınırsız ilan ve fiyat analizi yapabilirsiniz.")
     else:
-        st.info(f"🎁 Kalan Ücretsiz Hak: **{st.session_state.free_uses_left} / 2**")
+        st.info(f"🎁 Kalan Analiz Hakkı: **{st.session_state.free_uses_left}**")
         st.markdown("---")
-        st.subheader("🚀 Pro Pakete Geç")
-        st.write("Sınırsız ilan oluşturmak için paket satın alıp aktivasyon kodunuzu girin:")
+        st.subheader("🚀 Paket Satın Al")
+        st.write("Yeni ilanlar oluşturmak için size uygun paketi seçip aktivasyon kodunuzu girin:")
         st.markdown(
-            "- **10 İlan Paketi:** 49 TL\n"
-            "- **Sınırsız Aylık Pro:** 129 TL"
+            "- **Ek Sefer (1 Analiz Hakkı):** 10 TL\n"
+            "- **Sınırsız Aylık Pro:** 50 TL"
         )
-        st.link_button("💳 Paket Satın Al (Shopier)", "https://www.shopier.com", use_container_width=True)
+        # Shopier onayı gelince aşağıdaki iki link kendi ürün linklerinle değişecek:
+        st.link_button("⚡ Ek Sefer Al – 10 TL (Shopier)", "https://www.shopier.com", use_container_width=True)
+        st.link_button("👑 Aylık Pro Al – 50 TL (Shopier)", "https://www.shopier.com", use_container_width=True)
 
         st.markdown("---")
         access_code = st.text_input("Aktivasyon Kodunuz", type="password", placeholder="Kodu buraya girin...")
         if st.button("Kodu Aktifleştir", use_container_width=True):
-            if access_code.strip() in valid_codes:
+            code = access_code.strip()
+            if code in valid_pro_codes:
                 st.session_state.is_pro = True
                 st.rerun()
+            elif code in valid_single_codes:
+                if code in st.session_state.used_codes:
+                    st.warning("Bu tek seferlik kodu zaten kullandınız.")
+                else:
+                    st.session_state.free_uses_left += 1
+                    st.session_state.used_codes.append(code)
+                    st.rerun()
             else:
                 st.error("Geçersiz aktivasyon kodu.")
 
@@ -54,15 +69,15 @@ st.divider()
 can_analyze = st.session_state.is_pro or st.session_state.free_uses_left > 0
 
 if not can_analyze:
-    st.warning("🔒 Ücretsiz 2 analiz hakkınızı doldurdunuz!")
+    st.warning("🔒 Ücretsiz analiz haklarınızı doldurdunuz!")
     st.markdown(
         """
         ### İlanlarınızı Hızla Satmaya Devam Edin
-        Yeni ürünleriniz için saniyeler içinde piyasa fiyatı, algoritma uyumlu başlık ve hazır açıklama üretmek için **Pro Paket**'e geçebilirsiniz:
-        * **10 İlan Paketi:** 49 TL *(İlan başı sadece 4,9 TL)*
-        * **Sınırsız Aylık Pro:** 129 TL
+        Yeni ürünleriniz için saniyeler içinde piyasa fiyatı, algoritma uyumlu başlık ve hazır açıklama üretmek için paket seçebilirsiniz:
+        * **Ek Sefer (1 Analiz Hakkı):** 10 TL
+        * **Sınırsız Aylık Pro:** 50 TL
         
-        👈 Sol menüdeki **Paket Satın Al** butonundan ödemenizi yaptıktan sonra size iletilen aktivasyon kodunu girerek kilidi anında açabilirsiniz.
+        👈 Sol menüdeki **Shopier** butonlarından ödemenizi yaptıktan sonra size iletilen aktivasyon kodunu girerek devam edebilirsiniz.
         """
     )
 else:
@@ -107,7 +122,7 @@ else:
                     st.success("İlan paketin hazır! Aşağıdaki metinleri kopyalayıp doğrudan kullanabilirsin.")
                     st.markdown(result)
                     if not st.session_state.is_pro:
-                        st.info(f"Kalan ücretsiz analiz hakkınız: {st.session_state.free_uses_left}")
+                        st.info(f"Kalan analiz hakkınız: {st.session_state.free_uses_left}")
                 except Exception as e:
                     if "503" in str(e) or "UNAVAILABLE" in str(e):
                         st.warning("Yapay zeka sunucularında anlık yoğunluk var. Birkaç saniye bekleyip tekrar butona bas.")

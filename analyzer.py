@@ -45,8 +45,15 @@ def analyze_product(image: Image.Image, platform: str = "Dolap", condition: str 
     (Bu ürünün daha hızlı satılması için fotoğraf açısı veya ilan ayarıyla ilgili 1 pratik tavsiye)
     """
 
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.8-flash-lite",
+    ]
+
     last_error = None
-    for model_name in ["gemini-3.8-flash-lite", "gemini-3.8-flash"]:
+    for model_name in models_to_try:
         try:
             response = client.models.generate_content(
                 model=model_name,

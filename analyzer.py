@@ -1,120 +1,123 @@
+import io
 import os
 import time
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from PIL import Image
 
 load_dotenv()
+
+FAST_MODELS = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+]
 
 def _get_api_keys() -> list[str]:
     raw_keys = os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY", "")
     return [k.strip() for k in raw_keys.split(",") if k.strip()]
 
-def _get_models_for_client(client: genai.Client) -> list[str]:
-    preferred = [
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash",
-        "gemini-3.8-flash",
-    ]
-    discovered = []
-    try:
-        for m in client.models.list():
-            name = m.name.replace("models/", "")
-            if "gemini" in name and ("flash" in name or "pro" in name):
-                if not any(x in name for x in ["image", "audio", "tts", "live", "embedding", "veo", "imagen", "robotics", "2.0"]):
-                    if name not in preferred and name not in discovered:
-                        discovered.append(name)
-    except Exception:
-        pass
-    return (preferred + discovered)[:4]
+def _prepare_image_part(image: Image.Image) -> types.Part:
+    img_copy = image.copy()
+    if img_copy.mode in ("RGBA", "P", "LA"):
+        img_copy = img_copy.convert("RGB")
+    img_copy.thumbnail((512, 512))
+    buf = io.BytesIO()
+    img_copy.save(buf, format="JPEG", quality=80)
+    return types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg")
 
-_CACHED_MODELS: list[str] = []
-
-def _generate_with_fallback(contents: list) -> str:
-    global _CACHED_MODELS
+def _stream_with_fallback(contents: list):
     api_keys = _get_api_keys()
     if not api_keys:
-        raise ValueError("API anahtarı bulunamadı. Lütfen GEMINI_API_KEY ayarını kontrol edin.")
+        raise ValueError("API anahtarı bulunamadı. Lütfen GEMINI_API_KEYS ayarını kontrol edin.")
+
+    config = types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        max_output_tokens=900,
+        temperature=0.7,
+    )
 
     errors = []
     for key in api_keys:
         client = genai.Client(api_key=key)
-        if not _CACHED_MODELS:
-            _CACHED_MODELS = _get_models_for_client(client)
-
-        for model_name in _CACHED_MODELS:
+        for model_name in FAST_MODELS:
             for attempt in range(2):
+                yielded = False
                 try:
-                    response = client.models.generate_content(
+                    response = client.models.generate_content_stream(
                         model=model_name,
-                        contents=contents
+                        contents=contents,
+                        config=config,
                     )
-                    return response.text
+                    for chunk in response:
+                        if chunk.text:
+                            yielded = True
+                            yield chunk.text
+                    if yielded:
+                        return
                 except Exception as e:
+                    if yielded:
+                        raise
                     err_str = str(e)
                     errors.append(f"{model_name}: {err_str}")
                     if attempt == 0 and ("503" in err_str or "UNAVAILABLE" in err_str):
-                        time.sleep(1.5)
+                        time.sleep(1)
                         continue
                     break
 
     raise RuntimeError(" | ".join(errors))
 
-def analyze_product(image: Image.Image, platform: str = "Dolap", condition: str = "Az Kullanılmış", extra_notes: str = "") -> str:
-    img_copy = image.copy()
-    img_copy.thumbnail((768, 768))
+def analyze_product_stream(image: Image.Image, platform: str = "Dolap", condition: str = "Az Kullanılmış", extra_notes: str = ""):
+    image_part = _prepare_image_part(image)
 
     prompt = f"""
-    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzmanlaşmış bir e-ticaret ve fiyatlandırma danışmanısın.
-    Yüklenen ürün fotoğrafını incele ve satıcının ürünü en hızlı ve kârlı şekilde satmasını sağlayacak ilan paketini oluştur.
+    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzman bir e-ticaret ve fiyatlandırma danışmanısın.
+    Görseli incele ve aşağıdaki bilgilere göre kısa, net, kopyalamaya hazır bir ilan paketi oluştur.
 
-    Satıcının Seçtiği Platform: {platform}
-    Ürünün Durumu: {condition}
-    Satıcının Ek Notu: {extra_notes if extra_notes else "Yok"}
+    Platform: {platform} | Durum: {condition} | Ek Not: {extra_notes if extra_notes else "Yok"}
 
-    Yanıtını tam olarak şu başlıklarla, net ve kopyalamaya hazır formatta ver:
+    Yanıtını tam olarak şu 6 başlıkla ver:
 
     ### 1. Ürün Tespiti ve Durum Analizi
-    * **Tahmini Marka / Model / Tür:** (Fotoğraftan tespit edilen detaylar)
-    * **Görsel Durum ve Kusur Kontrolü:** (Yıpranma, leke, çizik veya temizlik durumu)
+    * **Tahmini Marka / Model / Tür:** (Görselden tespit edilen detaylar)
+    * **Görsel Durum:** (Temizlik ve kusur kontrolü)
 
     ### 2. Hızlı Satış Fiyat Önerisi (TL)
-    * **Hızlı Satış Fiyatı (24-48 saat içinde gider):** ... TL
-    * **İdeal Piyasa Fiyatı (Pazarlık paylı liste fiyatı):** ... TL
-    * **Fiyatlandırma Gerekçesi:** (Kısa açıklama)
+    * **Hızlı Satış Fiyatı (24-48 saat):** ... TL
+    * **İdeal Piyasa Fiyatı (Pazarlık paylı):** ... TL
+    * **Gerekçe:** (1-2 cümle)
 
     ### 3. Dikkat Çekici İlan Başlığı (3 Alternatif)
-    1. (Arama algoritmasına uygun, marka ve özellik odaklı başlık)
+    1. (Arama algoritmasına uygun başlık)
     2. (Fırsat / durum odaklı başlık)
     3. (Kısa ve net başlık)
 
     ### 4. İkna Edici İlan Açıklaması (Kopyala-Yapıştır)
-    (Alıcının aklındaki soruları yanıtlayan, güven veren, samimi ve profesyonel satış metni)
+    (Alıcıya güven veren, net ve samimi satış metni)
 
     ### 5. Öne Çıkan Etiketler (Hashtag)
-    (Platform aramalarında üst sıralara çıkaracak 8-10 adet etiket)
+    (8 adet platform etiketi)
 
     ### 6. Fotoğraf ve Satış İpucu
-    (Bu ürünün daha hızlı satılması için fotoğraf açısı veya ilan ayarıyla ilgili 1 pratik tavsiye)
+    (Daha hızlı satış için 1 pratik tavsiye)
     """
 
-    return _generate_with_fallback([img_copy, prompt])
+    yield from _stream_with_fallback([image_part, prompt])
 
-def refine_listing(current_listing: str, user_feedback: str, platform: str = "Dolap", condition: str = "Az Kullanılmış") -> str:
+def refine_listing_stream(current_listing: str, user_feedback: str, platform: str = "Dolap", condition: str = "Az Kullanılmış"):
     prompt = f"""
-    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzmanlaşmış bir e-ticaret ve fiyatlandırma danışmanısın.
-    Aşağıda daha önce hazırladığın ürün ilanı yer alıyor. Kullanıcı bu ilanı kendi fikrine ve isteğine göre güncellemeni istiyor.
+    Sen {platform} platformunda uzman bir ikinci el satış danışmanısın.
+    Aşağıdaki mevcut ilanı kullanıcının isteğine göre güncelle.
 
-    Ürünün Durumu: {condition}
+    Durum: {condition}
     Mevcut İlan:
     ---
     {current_listing}
     ---
 
-    Kullanıcının Değişiklik İsteği / Fikri:
-    "{user_feedback}"
+    Kullanıcı İsteği: "{user_feedback}"
 
-    Lütfen kullanıcının istediği değişiklikleri eksiksiz uygulayarak ilanı aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır şekilde yeniden oluştur.
+    İsteği eksiksiz uygulayarak aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır yeni ilanı yaz.
     """
 
-    return _generate_with_fallback([prompt])
+    yield from _stream_with_fallback([prompt])

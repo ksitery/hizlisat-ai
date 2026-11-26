@@ -218,13 +218,15 @@ def _hybrid_stream(prompt: str, images: list[Image.Image] | None = None):
 
 
 def analyze_product_stream(
-    images: list[Image.Image],
+    images: list[Image.Image] | None = None,
     platform: str = "Dolap",
     condition: str = "Az Kullanılmış",
     brand_model: str = "",
     specs: str = "",
     extra_notes: str = "",
+    image: Image.Image | None = None,
 ):
+    img_list = images if images is not None else ([image] if image is not None else [])
     brand_info = brand_model.strip() if brand_model.strip() else "Belirtilmedi (Görselden tahmin et)"
     specs_info = specs.strip() if specs.strip() else "Belirtilmedi"
     notes_info = extra_notes.strip() if extra_notes.strip() else "Yok"
@@ -264,7 +266,7 @@ def analyze_product_stream(
     (Daha hızlı satış için 1 pratik tavsiye)
     """
 
-    yield from _hybrid_stream(prompt=prompt, images=images)
+    yield from _hybrid_stream(prompt=prompt, images=img_list)
 
 
 def refine_listing_stream(current_listing: str, user_feedback: str, platform: str = "Dolap", condition: str = "Az Kullanılmış"):

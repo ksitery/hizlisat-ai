@@ -171,13 +171,13 @@ if st.session_state.generated_ad:
         st.caption("Kutuların sağ üst köşesindeki kopyala simgesine dokunarak doğrudan ilana yapıştırabilirsin.")
         if copy_sections["title"]:
             st.markdown("**İlan Başlığı:**")
-            st.code(copy_sections["title"], language=None)
+            st.code(copy_sections["title"], language=None, wrap_lines=True)
         if copy_sections["description"]:
             st.markdown("**İlan Açıklaması:**")
-            st.code(copy_sections["description"], language=None)
+            st.code(copy_sections["description"], language=None, wrap_lines=True)
         if copy_sections["hashtags"]:
             st.markdown("**Etiketler:**")
-            st.code(copy_sections["hashtags"], language=None)
+            st.code(copy_sections["hashtags"], language=None, wrap_lines=True)
 
     st.divider()
     st.subheader("✏️ İlanı Fikrine Göre Özelleştir")

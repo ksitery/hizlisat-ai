@@ -72,7 +72,7 @@ def _get_groq_models(api_key: str, vision: bool) -> list[str]:
             },
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
             for m in data.get("data", []):
                 mid = m.get("id", "")
                 if not mid or "guard" in mid or "whisper" in mid or "tts" in mid:
@@ -120,7 +120,7 @@ def _stream_groq(prompt: str, image_b64: str | None = None):
                     "model": model_name,
                     "messages": [{"role": "user", "content": content}],
                     "temperature": 0.7,
-                    "max_tokens": 900,
+                    "max_tokens": 1200,
                     "stream": True,
                 }
 
@@ -134,15 +134,22 @@ def _stream_groq(prompt: str, image_b64: str | None = None):
                     },
                 )
 
-                with urllib.request.urlopen(req, timeout=25) as resp:
+                with urllib.request.urlopen(req, timeout=30) as resp:
                     for raw_line in resp:
-                        line = raw_line.decode("utf-8").strip()
+                        line = raw_line.decode("utf-8", errors="ignore").strip()
+                        if not line or line.startswith(":"):
+                            continue
                         if not line.startswith("data: "):
                             continue
-                        data_str = line[6:]
+                        data_str = line[6:].strip()
                         if data_str == "[DONE]":
-                            break
-                        chunk = json.loads(data_str)
+                            return
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        if "error" in chunk:
+                            raise RuntimeError(str(chunk["error"]))
                         choices = chunk.get("choices") or []
                         if choices:
                             delta = choices[0].get("delta", {}).get("content")
@@ -167,7 +174,7 @@ def _stream_gemini(contents: list):
         raise ValueError("GEMINI_API_KEYS tanımlı değil.")
 
     config = types.GenerateContentConfig(
-        max_output_tokens=900,
+        max_output_tokens=1200,
         temperature=0.7,
     )
 
@@ -195,7 +202,7 @@ def _stream_gemini(contents: list):
                     err_str = str(e)
                     errors.append(f"Gemini({model_name}): {err_str}")
                     if attempt == 0 and ("503" in err_str or "UNAVAILABLE" in err_str):
-                        time.sleep(1)
+                        time.sleep(1.5)
                         continue
                     break
 
@@ -208,19 +215,42 @@ def _hybrid_stream(prompt: str, image: Image.Image | None = None):
     if image is not None:
         raw_bytes, b64_str = _encode_image_jpeg(image)
 
+    collected: list[str] = []
     groq_error = None
+
     try:
-        yield from _stream_groq(prompt=prompt, image_b64=b64_str)
+        for chunk in _stream_groq(prompt=prompt, image_b64=b64_str):
+            collected.append(chunk)
+            yield chunk
         return
     except Exception as e:
         groq_error = e
 
+    partial_text = "".join(collected).strip()
+
+    if partial_text:
+        resume_prompt = (
+            f"{prompt}\n\n"
+            f"--- ÖNEMLİ DEVAM TALİMATI ---\n"
+            f"Yanıtın ilk kısmı zaten üretildi ve ekranda gösteriliyor. "
+            f"Baştan başlama ve yazılanları tekrar etme. "
+            f"Aşağıdaki metnin kaldığı yerden doğrudan devam ederek eksik kalan başlıkları tamamla:\n\n"
+            f"{partial_text}"
+        )
+        try:
+            yield from _stream_groq(prompt=resume_prompt, image_b64=None)
+            return
+        except Exception:
+            pass
+    else:
+        resume_prompt = prompt
+
     try:
         if raw_bytes is not None:
             image_part = types.Part.from_bytes(data=raw_bytes, mime_type="image/jpeg")
-            yield from _stream_gemini([image_part, prompt])
+            yield from _stream_gemini([image_part, resume_prompt])
         else:
-            yield from _stream_gemini([prompt])
+            yield from _stream_gemini([resume_prompt])
     except Exception as gemini_error:
         raise RuntimeError(f"{groq_error} || {gemini_error}")
 

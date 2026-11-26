@@ -1,6 +1,10 @@
+import os
+import json
+import urllib.request
+import urllib.parse
 import streamlit as st
 from PIL import Image
-from analyzer import analyze_product
+from analyzer import analyze_product, refine_listing
 
 st.set_page_config(
     page_title="HızlıSat AI | İkinci El İlan & Fiyat Asistanı",
@@ -8,9 +12,16 @@ st.set_page_config(
     layout="centered"
 )
 
+if "generated_ad" not in st.session_state:
+    st.session_state.generated_ad = None
+if "last_platform" not in st.session_state:
+    st.session_state.last_platform = "Dolap"
+if "last_condition" not in st.session_state:
+    st.session_state.last_condition = "Az Kullanılmış"
+
 # --- ANA EKRAN ---
 st.title("🏷️ HızlıSat AI")
-st.caption("Ürünün fotoğrafını yükle; yapay zeka saniyeler içinde ideal satış fiyatını, dikkat çekici başlıkları ve açıklamayı ücretsiz hazırlasın.")
+st.caption("Ürünün fotoğrafını yükle; yapay zeka saniyeler içinde ideal satış fiyatını, dikkat çekici başlıkları ve açıklamayı tamamen ücretsiz hazırlasın.")
 
 st.divider()
 
@@ -50,14 +61,101 @@ if uploaded_file is not None:
                     condition=condition,
                     extra_notes=extra_notes
                 )
-                st.success("İlan paketin hazır! Aşağıdaki metinleri kopyalayıp doğrudan kullanabilirsin.")
-                st.markdown(result)
+                st.session_state.generated_ad = result
+                st.session_state.last_platform = platform
+                st.session_state.last_condition = condition
             except Exception as e:
                 if "503" in str(e) or "UNAVAILABLE" in str(e):
                     st.warning("Yapay zeka sunucularında anlık yoğunluk var. Birkaç saniye bekleyip tekrar butona bas.")
                 elif "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    st.warning("Günlük ücretsiz analiz kotası doldu. Lütfen daha sonra tekrar deneyin.")
+                    st.warning("Günlük ücretsiz analiz kotası doldu. Lütfen biraz sonra tekrar deneyin.")
                 else:
                     st.error(f"Bir hata oluştu: {e}")
 else:
     st.info("Başlamak için yukarıdan satmak istediğin ürünün fotoğrafını seç.")
+
+# --- OLUŞAN İLAN VE KULLANICI FİKRİNE GÖRE YENİDEN DÜZENLEME ---
+if st.session_state.generated_ad:
+    st.success("İlan paketin hazır! Aşağıdaki metinleri kopyalayıp doğrudan kullanabilirsin.")
+    st.markdown(st.session_state.generated_ad)
+
+    st.divider()
+    st.subheader("✏️ İlanı Fikrine Göre Özelleştir")
+    st.caption("Oluşan ilanda değiştirmek istediğin yerleri yaz; yapay zeka isteğine göre yeni ilanı hemen hazırlasın.")
+
+    revision_idea = st.text_area(
+        "Nasıl değiştirelim?",
+        placeholder="Örn: Fiyatı 150 TL bandına çekelim, öğrenciye indirim yapılabileceğini ekleyelim ve açıklama daha samimi olsun...",
+        height=90
+    )
+
+    if st.button("🔄 İsteğime Göre Yeni İlan Oluştur", use_container_width=True):
+        if not revision_idea.strip():
+            st.warning("Lütfen ilanda nasıl bir değişiklik istediğini kısaca yaz.")
+        else:
+            with st.spinner("Fikrine göre yeni ilan hazırlanıyor..."):
+                try:
+                    updated_ad = refine_listing(
+                        current_listing=st.session_state.generated_ad,
+                        user_feedback=revision_idea.strip(),
+                        platform=st.session_state.last_platform,
+                        condition=st.session_state.last_condition
+                    )
+                    st.session_state.generated_ad = updated_ad
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"İlan güncellenirken bir hata oluştu: {e}")
+
+# --- KULLANICI DENEYİMİ, FİKİR VE ÖNERİ FORMU ---
+st.divider()
+with st.expander("💬 Deneyimini Paylaş & Bize Ulaş (Fikir ve Öneri)", expanded=False):
+    st.write("HızlıSat AI'ı geliştirmemize yardımcı olun! Deneyiminizi, karşılaştığınız sorunları veya eklenmesini istediğiniz özellikleri bize yazabilirsiniz.")
+
+    rating = st.radio(
+        "Uygulama deneyiminizi nasıl değerlendirirsiniz?",
+        ["⭐⭐⭐⭐⭐ Çok Beğendim", "⭐⭐⭐⭐ İyi", "⭐⭐⭐ Orta", "⭐⭐ Geliştirilmeli"],
+        horizontal=True
+    )
+    user_suggestion = st.text_area(
+        "Fikir, Öneri veya Deneyiminiz",
+        placeholder="Örn: Çok hızlı ilan oluşturdu ama kargo boyutu tahmini de eklenirse harika olur...",
+        height=100
+    )
+    user_contact = st.text_input(
+        "İletişim Bilginiz (İsteğe bağlı)",
+        placeholder="Geri dönüş yapabilmemiz için e-posta veya Instagram kullanıcı adınız..."
+    )
+
+    if st.button("📩 Fikir ve Öneriyi Gönder", use_container_width=True):
+        if not user_suggestion.strip():
+            st.warning("Lütfen göndermeden önce görüş veya önerinizi yazın.")
+        else:
+            feedback_endpoint = os.getenv("FEEDBACK_URL", "").strip()
+            contact_email = os.getenv("CONTACT_EMAIL", "").strip()
+
+            if feedback_endpoint:
+                try:
+                    payload = json.dumps({
+                        "puan": rating,
+                        "mesaj": user_suggestion.strip(),
+                        "iletisim": user_contact.strip() or "Belirtilmedi"
+                    }).encode("utf-8")
+                    req = urllib.request.Request(
+                        feedback_endpoint,
+                        data=payload,
+                        headers={"Content-Type": "application/json", "Accept": "application/json"}
+                    )
+                    urllib.request.urlopen(req, timeout=8)
+                    st.success("Teşekkürler! Deneyiminiz ve öneriniz doğrudan geliştiriciye iletildi.")
+                except Exception:
+                    st.error("Gönderim sırasında bağlantı hatası oluştu, lütfen tekrar deneyin.")
+            else:
+                st.success("Görüşünüz kaydedildi! Doğrudan geliştiriciye e-posta ile iletmek isterseniz aşağıdaki butona tıklayabilirsiniz:")
+                subject = urllib.parse.quote(f"HızlıSat AI Geri Bildirim ({rating})")
+                body = urllib.parse.quote(
+                    f"Deneyim Puanı: {rating}\n"
+                    f"İletişim: {user_contact.strip() or 'Belirtilmedi'}\n\n"
+                    f"Fikir ve Öneri:\n{user_suggestion.strip()}"
+                )
+                mailto_link = f"mailto:{contact_email}?subject={subject}&body={body}"
+                st.link_button("✉️ E-posta Uygulamasıyla Gönder", mailto_link, use_container_width=True)

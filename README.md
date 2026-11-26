@@ -6,6 +6,14 @@
 
 ---
 
+## 📸 Uygulama Ekran Görüntüleri
+
+| Ürün Yükleme ve Detay Girişi | Yapay Zeka İlan Paketi ve Revizyon |
+| :---: | :---: |
+| ![Ana Ekran](screenshots/ana-ekran.png) | ![İlan Sonucu](screenshots/ilan-sonuc.png) |
+
+---
+
 ## ✨ Öne Çıkan Özellikler
 
 * **Hibrit ve Kesintisiz Yapay Zeka Mimarisi:** Birincil motor olarak **Groq Vision / Llama** modellerini kullanarak ultra hızlı (1–2 saniye) yanıt üretir; yoğunluk veya kota durumunda kullanıcıya hata yansıtmadan otomatik olarak **Google Gemini** yedek motoruna ve çoklu API anahtarı havuzuna geçiş yapar.
@@ -30,6 +38,9 @@
 
 ```text
 hizlisat-ai/
+├── screenshots/
+│   ├── ana-ekran.png   # Ürün yükleme ve detay giriş ekranı
+│   └── ilan-sonuc.png  # Yapay zeka ilan çıktısı ve revizyon alanı
 ├── app.py              # Streamlit kullanıcı arayüzü, canlı akış, ilan revizyonu ve geri bildirim formu
 ├── analyzer.py         # Görsel sıkıştırma, Groq + Gemini hibrit motoru ve otomatik yedekleme mantığı
 ├── requirements.txt    # Proje bağımlılıkları

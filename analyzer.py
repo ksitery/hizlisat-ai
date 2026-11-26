@@ -263,34 +263,3 @@ def analyze_product_stream(
     1. (Arama algoritmasına uygun, marka ve özellik odaklı başlık)
     2. (Fırsat / durum odaklı başlık)
     3. (Kısa ve net başlık)
-
-    ### 4. İkna Edici İlan Açıklaması (Kopyala-Yapıştır)
-    (Alıcıya güven veren, net ve samimi satış metni)
-
-    ### 5. Öne Çıkan Etiketler (Hashtag)
-    (8 adet platform etiketi)
-
-    ### 6. Fotoğraf ve Satış İpucu
-    (Daha hızlı satış için 1 pratik tavsiye)
-    """
-
-    yield from _hybrid_stream(prompt=prompt, image=image)
-
-
-def refine_listing_stream(current_listing: str, user_feedback: str, platform: str = "Dolap", condition: str = "Az Kullanılmış"):
-    prompt = f"""
-    Sen {platform} platformunda uzman bir ikinci el satış danışmanısın.
-    Aşağıdaki mevcut ilanı kullanıcının isteğine göre doğal ve akıcı Türkçe ile güncelle.
-
-    Durum: {condition}
-    Mevcut İlan:
-    ---
-    {current_listing}
-    ---
-
-    Kullanıcı İsteği: "{user_feedback}"
-
-    İsteği eksiksiz uygulayarak aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır yeni ilanı yaz.
-    """
-
-    yield from _hybrid_stream(prompt=prompt, image=None)

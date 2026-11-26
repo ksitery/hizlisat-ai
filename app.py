@@ -137,6 +137,10 @@ if st.session_state.generated_ad:
             except Exception as e:
                 st.error(f"İlan güncellenirken bir hata oluştu: {e}")
 
+    if st.button("🗑️ Yeni Ürün İçin Ekranı Temizle", use_container_width=True):
+        st.session_state.generated_ad = None
+        st.rerun()
+
 # --- KULLANICI DENEYİMİ, FİKİR VE ÖNERİ FORMU ---
 st.divider()
 with st.expander("💬 Deneyimini Paylaş & Bize Ulaş (Fikir ve Öneri)", expanded=False):
@@ -192,3 +196,6 @@ with st.expander("💬 Deneyimini Paylaş & Bize Ulaş (Fikir ve Öneri)", expan
                 )
                 mailto_link = f"mailto:{contact_email}?subject={subject}&body={body}"
                 st.link_button("✉️ E-posta Uygulamasıyla Gönder", mailto_link, use_container_width=True)
+
+st.divider()
+st.caption("🏷️ HızlıSat AI • Yapay Zeka Destekli İkinci El İlan ve Fiyatlandırma Asistanı")

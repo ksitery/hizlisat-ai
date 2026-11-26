@@ -225,18 +225,34 @@ def _hybrid_stream(prompt: str, image: Image.Image | None = None):
         raise RuntimeError(f"{groq_error} || {gemini_error}")
 
 
-def analyze_product_stream(image: Image.Image, platform: str = "Dolap", condition: str = "Az Kullanılmış", extra_notes: str = ""):
+def analyze_product_stream(
+    image: Image.Image,
+    platform: str = "Dolap",
+    condition: str = "Az Kullanılmış",
+    brand_model: str = "",
+    specs: str = "",
+    extra_notes: str = "",
+):
+    brand_info = brand_model.strip() if brand_model.strip() else "Belirtilmedi (Görselden tahmin et)"
+    specs_info = specs.strip() if specs.strip() else "Belirtilmedi"
+    notes_info = extra_notes.strip() if extra_notes.strip() else "Yok"
+
     prompt = f"""
     Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzman bir e-ticaret ve fiyatlandırma danışmanısın.
-    Görseli incele ve aşağıdaki bilgilere göre tamamen doğal, akıcı Türkçe ile kısa, net, kopyalamaya hazır bir ilan paketi oluştur.
+    Görseli ve kullanıcının paylaştığı bilgileri birlikte değerlendirerek tamamen doğal, akıcı Türkçe ile kısa, net, kopyalamaya hazır bir ilan paketi oluştur.
+    Eğer kullanıcı marka, model veya özellik belirttiyse mutlaka bu bilgileri esas al; belirtmediyse görselden tespit et.
 
-    Platform: {platform} | Durum: {condition} | Ek Not: {extra_notes if extra_notes else "Yok"}
+    Platform: {platform}
+    Durum: {condition}
+    Marka / Model: {brand_info}
+    Beden / Ölçü / Teknik Özellik: {specs_info}
+    Ek Not / Kusur Durumu: {notes_info}
 
     Yanıtını tam olarak şu 6 başlıkla ver:
 
     ### 1. Ürün Tespiti ve Durum Analizi
-    * **Tahmini Marka / Model / Tür:** (Görselden tespit edilen detaylar)
-    * **Görsel Durum:** (Temizlik ve kusur kontrolü)
+    * **Marka / Model / Tür:** (Kullanıcının belirttiği ve görselden tespit edilen detaylar)
+    * **Görsel Durum ve Özellikler:** (Temizlik, kusur kontrolü ve teknik/beden özeti)
 
     ### 2. Hızlı Satış Fiyat Önerisi (TL)
     * **Hızlı Satış Fiyatı (24-48 saat):** ... TL
@@ -244,7 +260,7 @@ def analyze_product_stream(image: Image.Image, platform: str = "Dolap", conditio
     * **Gerekçe:** (1-2 cümle)
 
     ### 3. Dikkat Çekici İlan Başlığı (3 Alternatif)
-    1. (Arama algoritmasına uygun başlık)
+    1. (Arama algoritmasına uygun, marka ve özellik odaklı başlık)
     2. (Fırsat / durum odaklı başlık)
     3. (Kısa ve net başlık)
 

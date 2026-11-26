@@ -44,10 +44,20 @@ with st.form("product_form"):
             index=2
         )
 
-    extra_notes = st.text_input(
-        "Ek Notlar (İsteğe bağlı)",
-        placeholder="Örn: Faturası var, kutusu duruyor, sadece 2 kez kullanıldı..."
-    )
+    with st.expander("➕ Ürün Detayları Ekle (İsteğe Bağlı – Marka, Model, Beden/Özellik)", expanded=False):
+        st.caption("Fotoğraftan net anlaşılmayan marka, beden veya teknik detayları eklerseniz fiyat ve başlıklar çok daha isabetli olur.")
+        brand_model = st.text_input(
+            "Marka / Model",
+            placeholder="Örn: Zara, Nike Air Force, Asus Vivobook, Tefal..."
+        )
+        specs = st.text_input(
+            "Beden / Ölçü / Teknik Özellik",
+            placeholder="Örn: M Beden, 42 Numara, 16 GB RAM / 512 GB SSD, 2024 alım..."
+        )
+        extra_notes = st.text_input(
+            "Ek Notlar / Kusur Durumu",
+            placeholder="Örn: Faturası ve kutusu var, sağ kolda minik leke var..."
+        )
 
     generate_clicked = st.form_submit_button("🚀 Fiyat ve İlan Oluştur", type="primary", use_container_width=True)
 
@@ -72,7 +82,9 @@ if generate_clicked:
                         image=image,
                         platform=platform,
                         condition=condition,
-                        extra_notes=extra_notes
+                        brand_model=brand_model,
+                        specs=specs,
+                        extra_notes=extra_notes,
                     )
                 )
             st.session_state.generated_ad = result

@@ -170,7 +170,8 @@ with st.expander("💬 Deneyimini Paylaş & Bize Ulaş (Fikir ve Öneri)", expan
             feedback_endpoint = os.getenv("FEEDBACK_URL", "").strip()
             contact_email = os.getenv("CONTACT_EMAIL", "").strip()
 
-            if feedback_endpoint:
+            sent_via_api = False
+            if feedback_endpoint.startswith("http") and "..." not in feedback_endpoint:
                 try:
                     payload = json.dumps({
                         "puan": rating,
@@ -180,14 +181,22 @@ with st.expander("💬 Deneyimini Paylaş & Bize Ulaş (Fikir ve Öneri)", expan
                     req = urllib.request.Request(
                         feedback_endpoint,
                         data=payload,
-                        headers={"Content-Type": "application/json", "Accept": "application/json"}
+                        headers={
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                            "User-Agent": "Mozilla/5.0 (HizliSat-AI/1.0)"
+                        }
                     )
-                    urllib.request.urlopen(req, timeout=8)
-                    st.success("Teşekkürler! Deneyiminiz ve öneriniz doğrudan geliştiriciye iletildi.")
+                    with urllib.request.urlopen(req, timeout=8) as resp:
+                        if 200 <= resp.status < 300:
+                            sent_via_api = True
                 except Exception:
-                    st.error("Gönderim sırasında bağlantı hatası oluştu, lütfen tekrar deneyin.")
+                    sent_via_api = False
+
+            if sent_via_api:
+                st.success("Teşekkürler! Deneyiminiz ve öneriniz doğrudan geliştiriciye iletildi.")
             else:
-                st.success("Görüşünüz kaydedildi! Doğrudan geliştiriciye e-posta ile iletmek isterseniz aşağıdaki butona tıklayabilirsiniz:")
+                st.success("Görüşünüz hazırlandı! Doğrudan geliştiriciye e-posta ile iletmek için aşağıdaki butona tıklayabilirsiniz:")
                 subject = urllib.parse.quote(f"HızlıSat AI Geri Bildirim ({rating})")
                 body = urllib.parse.quote(
                     f"Deneyim Puanı: {rating}\n"

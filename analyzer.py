@@ -35,9 +35,9 @@ def _encode_image_jpeg(image: Image.Image) -> tuple[bytes, str]:
     img_copy = image.copy()
     if img_copy.mode in ("RGBA", "P", "LA"):
         img_copy = img_copy.convert("RGB")
-    img_copy.thumbnail((512, 512))
+    img_copy.thumbnail((384, 384))
     buf = io.BytesIO()
-    img_copy.save(buf, format="JPEG", quality=80)
+    img_copy.save(buf, format="JPEG", quality=72)
     raw_bytes = buf.getvalue()
     b64_str = base64.b64encode(raw_bytes).decode("utf-8")
     return raw_bytes, b64_str
@@ -58,8 +58,8 @@ def _get_groq_models(api_key: str, vision: bool) -> list[str]:
     else:
         preferred = [
             "llama-3.3-70b-versatile",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
             "llama-3.1-8b-instant",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
         ]
 
     discovered = []
@@ -68,10 +68,10 @@ def _get_groq_models(api_key: str, vision: bool) -> list[str]:
             "https://api.groq.com/openai/v1/models",
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "User-Agent": "HizliSat-AI/1.0",
+                "User-Agent": "Mozilla/5.0 (HizliSat-AI/1.0)",
             },
         )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="ignore"))
             for m in data.get("data", []):
                 mid = m.get("id", "")
@@ -119,8 +119,8 @@ def _stream_groq(prompt: str, image_b64: str | None = None):
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": content}],
-                    "temperature": 0.7,
-                    "max_tokens": 1200,
+                    "temperature": 0.6,
+                    "max_tokens": 750,
                     "stream": True,
                 }
 
@@ -130,11 +130,11 @@ def _stream_groq(prompt: str, image_b64: str | None = None):
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
-                        "User-Agent": "HizliSat-AI/1.0",
+                        "User-Agent": "Mozilla/5.0 (HizliSat-AI/1.0)",
                     },
                 )
 
-                with urllib.request.urlopen(req, timeout=30) as resp:
+                with urllib.request.urlopen(req, timeout=14) as resp:
                     for raw_line in resp:
                         line = raw_line.decode("utf-8", errors="ignore").strip()
                         if not line or line.startswith(":"):
@@ -174,8 +174,8 @@ def _stream_gemini(contents: list):
         raise ValueError("GEMINI_API_KEYS tanımlı değil.")
 
     config = types.GenerateContentConfig(
-        max_output_tokens=1200,
-        temperature=0.7,
+        max_output_tokens=750,
+        temperature=0.6,
     )
 
     errors = []
@@ -202,7 +202,7 @@ def _stream_gemini(contents: list):
                     err_str = str(e)
                     errors.append(f"Gemini({model_name}): {err_str}")
                     if attempt == 0 and ("503" in err_str or "UNAVAILABLE" in err_str):
-                        time.sleep(1.5)
+                        time.sleep(1)
                         continue
                     break
 
@@ -231,8 +231,7 @@ def _hybrid_stream(prompt: str, image: Image.Image | None = None):
     if partial_text:
         resume_prompt = (
             f"{prompt}\n\n"
-            f"--- ÖNEMLİ DEVAM TALİMATI ---\n"
-            f"Yanıtın ilk kısmı zaten üretildi ve ekranda gösteriliyor. "
+            f"--- DEVAM TALİMATI ---\n"
             f"Baştan başlama ve yazılanları tekrar etme. "
             f"Aşağıdaki metnin kaldığı yerden doğrudan devam ederek eksik kalan başlıkları tamamla:\n\n"
             f"{partial_text}"
@@ -268,40 +267,36 @@ def analyze_product_stream(
     notes_info = extra_notes.strip() if extra_notes.strip() else "Yok"
 
     prompt = f"""
-    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzman bir e-ticaret ve fiyatlandırma danışmanısın.
-    Görseli ve kullanıcının paylaştığı bilgileri birlikte değerlendirerek tamamen doğal, akıcı Türkçe ile kısa, net, kopyalamaya hazır bir ilan paketi oluştur.
-    Eğer kullanıcı marka, model veya özellik belirttiyse mutlaka bu bilgileri esas al; belirtmediyse görselden tespit et.
+    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzman bir fiyatlandırma ve ilan danışmanısın.
+    Görseli ve bilgileri değerlendirerek gereksiz uzatmadan, kısa, net ve kopyalamaya hazır bir ilan paketi oluştur.
 
-    Platform: {platform}
-    Durum: {condition}
-    Marka / Model: {brand_info}
-    Beden / Ölçü / Teknik Özellik: {specs_info}
-    Ek Not / Kusur Durumu: {notes_info}
+    Platform: {platform} | Durum: {condition}
+    Marka / Model: {brand_info} | Özellik: {specs_info} | Ek Not: {notes_info}
 
-    Yanıtını tam olarak şu 6 başlıkla ver:
+    Tam olarak şu 6 başlıkla yanıt ver:
 
     ### 1. Ürün Tespiti ve Durum Analizi
-    * **Marka / Model / Tür:** (Kullanıcının belirttiği ve görselden tespit edilen detaylar)
-    * **Görsel Durum ve Özellikler:** (Temizlik, kusur kontrolü ve teknik/beden özeti)
+    * **Marka / Model / Tür:** (Detaylar)
+    * **Görsel Durum ve Özellikler:** (Kısa özet)
 
     ### 2. Hızlı Satış Fiyat Önerisi (TL)
     * **Hızlı Satış Fiyatı (24-48 saat):** ... TL
     * **İdeal Piyasa Fiyatı (Pazarlık paylı):** ... TL
-    * **Gerekçe:** (1-2 cümle)
+    * **Gerekçe:** (1 cümle)
 
     ### 3. Dikkat Çekici İlan Başlığı (3 Alternatif)
-    1. (Arama algoritmasına uygun, marka ve özellik odaklı başlık)
-    2. (Fırsat / durum odaklı başlık)
-    3. (Kısa ve net başlık)
+    1. (Arama uyumlu başlık)
+    2. (Durum odaklı başlık)
+    3. (Kısa başlık)
 
     ### 4. İkna Edici İlan Açıklaması (Kopyala-Yapıştır)
-    (Alıcıya güven veren, net ve samimi satış metni)
+    (Net ve güven veren kısa satış metni)
 
     ### 5. Öne Çıkan Etiketler (Hashtag)
-    (8 adet platform etiketi)
+    (8 adet etiket)
 
     ### 6. Fotoğraf ve Satış İpucu
-    (Daha hızlı satış için 1 pratik tavsiye)
+    (1 pratik tavsiye)
     """
 
     yield from _hybrid_stream(prompt=prompt, image=image)
@@ -310,7 +305,7 @@ def analyze_product_stream(
 def refine_listing_stream(current_listing: str, user_feedback: str, platform: str = "Dolap", condition: str = "Az Kullanılmış"):
     prompt = f"""
     Sen {platform} platformunda uzman bir ikinci el satış danışmanısın.
-    Aşağıdaki mevcut ilanı kullanıcının isteğine göre doğal ve akıcı Türkçe ile güncelle.
+    Aşağıdaki mevcut ilanı kullanıcının isteğine göre kısa, net ve akıcı Türkçe ile güncelle.
 
     Durum: {condition}
     Mevcut İlan:
@@ -320,7 +315,7 @@ def refine_listing_stream(current_listing: str, user_feedback: str, platform: st
 
     Kullanıcı İsteği: "{user_feedback}"
 
-    İsteği eksiksiz uygulayarak aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır yeni ilanı yaz.
+    Aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır yeni ilanı yaz.
     """
 
     yield from _hybrid_stream(prompt=prompt, image=None)

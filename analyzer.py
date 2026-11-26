@@ -11,13 +11,20 @@ from PIL import Image
 
 load_dotenv()
 
+GROQ_VISION_MODELS = [
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+]
+
+GROQ_TEXT_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+]
+
 GEMINI_FAST_MODELS = [
     "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
 ]
-
-_GROQ_VISION_CACHE: list[str] = []
-_GROQ_TEXT_CACHE: list[str] = []
 
 
 def _get_keys(env_names: list[str]) -> list[str]:
@@ -31,96 +38,50 @@ def _get_keys(env_names: list[str]) -> list[str]:
     return keys
 
 
-def _encode_image_jpeg(image: Image.Image) -> tuple[bytes, str]:
-    img_copy = image.copy()
-    if img_copy.mode in ("RGBA", "P", "LA"):
-        img_copy = img_copy.convert("RGB")
-    img_copy.thumbnail((384, 384))
-    buf = io.BytesIO()
-    img_copy.save(buf, format="JPEG", quality=72)
-    raw_bytes = buf.getvalue()
-    b64_str = base64.b64encode(raw_bytes).decode("utf-8")
-    return raw_bytes, b64_str
+def _encode_images_jpeg(images: list[Image.Image]) -> list[tuple[bytes, str]]:
+    encoded = []
+    for image in images[:3]:
+        img_copy = image.copy()
+        if img_copy.mode in ("RGBA", "P", "LA"):
+            img_copy = img_copy.convert("RGB")
+        img_copy.thumbnail((512, 512))
+        buf = io.BytesIO()
+        img_copy.save(buf, format="JPEG", quality=80)
+        raw_bytes = buf.getvalue()
+        b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+        encoded.append((raw_bytes, b64_str))
+    return encoded
 
 
-def _get_groq_models(api_key: str, vision: bool) -> list[str]:
-    global _GROQ_VISION_CACHE, _GROQ_TEXT_CACHE
-    if vision and _GROQ_VISION_CACHE:
-        return _GROQ_VISION_CACHE
-    if not vision and _GROQ_TEXT_CACHE:
-        return _GROQ_TEXT_CACHE
-
-    if vision:
-        preferred = [
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            "meta-llama/llama-4-maverick-17b-128e-instruct",
-        ]
-    else:
-        preferred = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-        ]
-
-    discovered = []
-    try:
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/models",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "User-Agent": "Mozilla/5.0 (HizliSat-AI/1.0)",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            for m in data.get("data", []):
-                mid = m.get("id", "")
-                if not mid or "guard" in mid or "whisper" in mid or "tts" in mid:
-                    continue
-                if vision and ("llama-4" in mid or "vision" in mid):
-                    if mid not in preferred and mid not in discovered:
-                        discovered.append(mid)
-                elif not vision and ("llama" in mid or "qwen" in mid):
-                    if mid not in preferred and mid not in discovered:
-                        discovered.append(mid)
-    except Exception:
-        pass
-
-    result = (preferred + discovered)[:3]
-    if vision:
-        _GROQ_VISION_CACHE = result
-    else:
-        _GROQ_TEXT_CACHE = result
-    return result
-
-
-def _stream_groq(prompt: str, image_b64: str | None = None):
+def _stream_groq(prompt: str, images_b64: list[str] | None = None):
     groq_keys = _get_keys(["GROQ_API_KEYS", "GROQ_API_KEY"])
     if not groq_keys:
         raise ValueError("GROQ_API_KEY tanımlı değil.")
 
+    models = GROQ_VISION_MODELS if images_b64 else GROQ_TEXT_MODELS
     errors = []
+
     for key in groq_keys:
-        models = _get_groq_models(key, vision=(image_b64 is not None))
         for model_name in models:
             yielded = False
             try:
-                if image_b64:
-                    content = [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                        },
-                    ]
+                if images_b64:
+                    content = [{"type": "text", "text": prompt}]
+                    for b64_str in images_b64:
+                        content.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"},
+                            }
+                        )
                 else:
                     content = prompt
 
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": content}],
-                    "temperature": 0.6,
-                    "max_tokens": 750,
+                    "temperature": 0.65,
+                    "max_tokens": 1200,
                     "stream": True,
                 }
 
@@ -134,7 +95,7 @@ def _stream_groq(prompt: str, image_b64: str | None = None):
                     },
                 )
 
-                with urllib.request.urlopen(req, timeout=14) as resp:
+                with urllib.request.urlopen(req, timeout=25) as resp:
                     for raw_line in resp:
                         line = raw_line.decode("utf-8", errors="ignore").strip()
                         if not line or line.startswith(":"):
@@ -174,8 +135,8 @@ def _stream_gemini(contents: list):
         raise ValueError("GEMINI_API_KEYS tanımlı değil.")
 
     config = types.GenerateContentConfig(
-        max_output_tokens=750,
-        temperature=0.6,
+        max_output_tokens=1200,
+        temperature=0.65,
     )
 
     errors = []
@@ -202,24 +163,22 @@ def _stream_gemini(contents: list):
                     err_str = str(e)
                     errors.append(f"Gemini({model_name}): {err_str}")
                     if attempt == 0 and ("503" in err_str or "UNAVAILABLE" in err_str):
-                        time.sleep(1)
+                        time.sleep(1.5)
                         continue
                     break
 
     raise RuntimeError(" | ".join(errors))
 
 
-def _hybrid_stream(prompt: str, image: Image.Image | None = None):
-    raw_bytes = None
-    b64_str = None
-    if image is not None:
-        raw_bytes, b64_str = _encode_image_jpeg(image)
+def _hybrid_stream(prompt: str, images: list[Image.Image] | None = None):
+    encoded_images = _encode_images_jpeg(images) if images else []
+    b64_list = [item[1] for item in encoded_images] if encoded_images else None
 
     collected: list[str] = []
     groq_error = None
 
     try:
-        for chunk in _stream_groq(prompt=prompt, image_b64=b64_str):
+        for chunk in _stream_groq(prompt=prompt, images_b64=b64_list):
             collected.append(chunk)
             yield chunk
         return
@@ -237,7 +196,7 @@ def _hybrid_stream(prompt: str, image: Image.Image | None = None):
             f"{partial_text}"
         )
         try:
-            yield from _stream_groq(prompt=resume_prompt, image_b64=None)
+            yield from _stream_groq(prompt=resume_prompt, images_b64=None)
             return
         except Exception:
             pass
@@ -245,9 +204,13 @@ def _hybrid_stream(prompt: str, image: Image.Image | None = None):
         resume_prompt = prompt
 
     try:
-        if raw_bytes is not None:
-            image_part = types.Part.from_bytes(data=raw_bytes, mime_type="image/jpeg")
-            yield from _stream_gemini([image_part, resume_prompt])
+        if encoded_images:
+            parts = [
+                types.Part.from_bytes(data=raw_bytes, mime_type="image/jpeg")
+                for raw_bytes, _ in encoded_images
+            ]
+            parts.append(resume_prompt)
+            yield from _stream_gemini(parts)
         else:
             yield from _stream_gemini([resume_prompt])
     except Exception as gemini_error:
@@ -255,7 +218,7 @@ def _hybrid_stream(prompt: str, image: Image.Image | None = None):
 
 
 def analyze_product_stream(
-    image: Image.Image,
+    images: list[Image.Image],
     platform: str = "Dolap",
     condition: str = "Az Kullanılmış",
     brand_model: str = "",
@@ -267,45 +230,47 @@ def analyze_product_stream(
     notes_info = extra_notes.strip() if extra_notes.strip() else "Yok"
 
     prompt = f"""
-    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzman bir fiyatlandırma ve ilan danışmanısın.
-    Görseli ve bilgileri değerlendirerek gereksiz uzatmadan, kısa, net ve kopyalamaya hazır bir ilan paketi oluştur.
+    Sen Türkiye'deki ikinci el satış platformlarında ({platform}) uzman bir e-ticaret ve fiyatlandırma danışmanısın.
+    Görselleri ve bilgileri birlikte değerlendirerek doğal, akıcı Türkçe ile kısa, net ve kopyalamaya hazır bir ilan paketi oluştur.
+    Kullanıcı marka, model veya özellik belirttiyse mutlaka bu bilgileri esas al; belirtmediyse görsellerden tespit et.
 
     Platform: {platform} | Durum: {condition}
     Marka / Model: {brand_info} | Özellik: {specs_info} | Ek Not: {notes_info}
 
-    Tam olarak şu 6 başlıkla yanıt ver:
+    Yanıtını eksiksiz olarak tam şu 6 başlıkla ver:
 
     ### 1. Ürün Tespiti ve Durum Analizi
     * **Marka / Model / Tür:** (Detaylar)
-    * **Görsel Durum ve Özellikler:** (Kısa özet)
+    * **Görsel Durum ve Özellikler:** (Temizlik, kusur kontrolü ve özellik özeti)
 
-    ### 2. Hızlı Satış Fiyat Önerisi (TL)
+    ### 2. Hızlı Satış Fiyat Önerisi ve Kargo Bilgisi
     * **Hızlı Satış Fiyatı (24-48 saat):** ... TL
     * **İdeal Piyasa Fiyatı (Pazarlık paylı):** ... TL
-    * **Gerekçe:** (1 cümle)
+    * **Tahmini Kargo Boyutu:** (Küçük Paket / Orta Paket / Büyük Paket)
+    * **Gerekçe:** (1-2 cümle)
 
     ### 3. Dikkat Çekici İlan Başlığı (3 Alternatif)
-    1. (Arama uyumlu başlık)
-    2. (Durum odaklı başlık)
-    3. (Kısa başlık)
+    1. (Arama algoritmasına uygun başlık)
+    2. (Fırsat / durum odaklı başlık)
+    3. (Kısa ve net başlık)
 
     ### 4. İkna Edici İlan Açıklaması (Kopyala-Yapıştır)
-    (Net ve güven veren kısa satış metni)
+    (Alıcıya güven veren, net ve samimi satış metni)
 
     ### 5. Öne Çıkan Etiketler (Hashtag)
-    (8 adet etiket)
+    (8 adet platform etiketi)
 
     ### 6. Fotoğraf ve Satış İpucu
-    (1 pratik tavsiye)
+    (Daha hızlı satış için 1 pratik tavsiye)
     """
 
-    yield from _hybrid_stream(prompt=prompt, image=image)
+    yield from _hybrid_stream(prompt=prompt, images=images)
 
 
 def refine_listing_stream(current_listing: str, user_feedback: str, platform: str = "Dolap", condition: str = "Az Kullanılmış"):
     prompt = f"""
     Sen {platform} platformunda uzman bir ikinci el satış danışmanısın.
-    Aşağıdaki mevcut ilanı kullanıcının isteğine göre kısa, net ve akıcı Türkçe ile güncelle.
+    Aşağıdaki mevcut ilanı kullanıcının isteğine göre doğal ve akıcı Türkçe ile güncelle.
 
     Durum: {condition}
     Mevcut İlan:
@@ -315,7 +280,7 @@ def refine_listing_stream(current_listing: str, user_feedback: str, platform: st
 
     Kullanıcı İsteği: "{user_feedback}"
 
-    Aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır yeni ilanı yaz.
+    İsteği eksiksiz uygulayarak aynı 6 başlık düzeniyle (1. Ürün Tespiti ve Durum Analizi, 2. Hızlı Satış Fiyat Önerisi ve Kargo Bilgisi, 3. Dikkat Çekici İlan Başlığı, 4. İkna Edici İlan Açıklaması, 5. Öne Çıkan Etiketler, 6. Fotoğraf ve Satış İpucu) kopyalamaya hazır yeni ilanı yaz.
     """
 
-    yield from _hybrid_stream(prompt=prompt, image=None)
+    yield from _hybrid_stream(prompt=prompt, images=None)

@@ -1,4 +1,5 @@
 import os
+import time
 from dotenv import load_dotenv
 from google import genai
 from PIL import Image
@@ -61,14 +62,18 @@ def analyze_product(image: Image.Image, platform: str = "Dolap", condition: str 
 
     errors = []
     for model_name in get_active_models():
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[img_copy, prompt]
-            )
-            return response.text
-        except Exception as e:
-            errors.append(f"{model_name}: {e}")
-            continue
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[img_copy, prompt]
+                )
+                return response.text
+            except Exception as e:
+                errors.append(f"{model_name}: {e}")
+                if attempt == 0 and ("503" in str(e) or "UNAVAILABLE" in str(e)):
+                    time.sleep(2)
+                    continue
+                break
 
     raise RuntimeError(" | ".join(errors))
